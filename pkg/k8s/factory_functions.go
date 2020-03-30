@@ -573,7 +573,7 @@ func ConvertToPod(obj interface{}) interface{} {
 				Name:              c.Name,
 				Image:             c.Image,
 				VolumeMountsPaths: vmps,
-				HostPorts:         ports,
+				ContainerPorts:    ports,
 			}
 			containers = append(containers, pc)
 		}
@@ -613,7 +613,7 @@ func ConvertToPod(obj interface{}) interface{} {
 				Name:              c.Name,
 				Image:             c.Image,
 				VolumeMountsPaths: vmps,
-				HostPorts:         ports,
+				ContainerPorts:    ports,
 			}
 			containers = append(containers, pc)
 		}
