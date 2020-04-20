@@ -34,6 +34,10 @@ data:
 {{- end }}
 {{- end }}
 
+{{- if .Values.global.nativeRoutingCIDR  }}
+  native-routing-cidr: {{ .Values.global.nativeRoutingCIDR }}
+{{- end }}
+
   # Identity allocation mode selects how identities are shared between cilium
   # nodes by setting how they are stored. The options are "crd" or "kvstore".
   # - "crd" stores identities in kubernetes as CRDs (custom resource definition).
