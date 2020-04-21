@@ -19,20 +19,21 @@ package service
 import (
 	"net"
 
-	nodeTypes "github.com/cilium/cilium/pkg/node/types"
-	"github.com/cilium/cilium/pkg/service/healthserver"
-
 	"github.com/cilium/cilium/pkg/checker"
 	lb "github.com/cilium/cilium/pkg/loadbalancer"
 	"github.com/cilium/cilium/pkg/maps/lbmap"
+	nodeTypes "github.com/cilium/cilium/pkg/node/types"
+	"github.com/cilium/cilium/pkg/option"
+	"github.com/cilium/cilium/pkg/service/healthserver"
 
 	. "gopkg.in/check.v1"
 )
 
 type ManagerTestSuite struct {
-	svc       *Service
-	lbmap     *lbmap.LBMockMap // for accessing public fields
-	svcHealth *healthserver.MockHealthHTTPServerFactory
+	svc                       *Service
+	lbmap                     *lbmap.LBMockMap // for accessing public fields
+	svcHealth                 *healthserver.MockHealthHTTPServerFactory
+	prevOptionSessionAffinity bool
 }
 
 var _ = Suite(&ManagerTestSuite{})
@@ -47,11 +48,15 @@ func (m *ManagerTestSuite) SetUpTest(c *C) {
 
 	m.svcHealth = healthserver.NewMockHealthHTTPServerFactory()
 	m.svc.healthServer = healthserver.WithHealthHTTPServerFactory(m.svcHealth)
+
+	m.prevOptionSessionAffinity = option.Config.EnableSessionAffinity
+	option.Config.EnableSessionAffinity = true
 }
 
-func (e *ManagerTestSuite) TearDownTest(c *C) {
+func (m *ManagerTestSuite) TearDownTest(c *C) {
 	serviceIDAlloc.resetLocalID()
 	backendIDAlloc.resetLocalID()
+	option.Config.EnableSessionAffinity = m.prevOptionSessionAffinity
 }
 
 var (
@@ -68,8 +73,8 @@ var (
 )
 
 func (m *ManagerTestSuite) TestUpsertAndDeleteService(c *C) {
-	// Should create a new service with two backends
-	created, id1, err := m.svc.UpsertService(frontend1, backends1, lb.SVCTypeNodePort, lb.SVCTrafficPolicyCluster, 0, "svc1", "ns1")
+	// Should create a new service with two backends and session affinity
+	created, id1, err := m.svc.UpsertService(frontend1, backends1, lb.SVCTypeNodePort, lb.SVCTrafficPolicyCluster, true, 100, 0, "svc1", "ns1")
 	c.Assert(err, IsNil)
 	c.Assert(created, Equals, true)
 	c.Assert(id1, Equals, lb.ID(1))
@@ -77,9 +82,17 @@ func (m *ManagerTestSuite) TestUpsertAndDeleteService(c *C) {
 	c.Assert(len(m.lbmap.BackendByID), Equals, 2)
 	c.Assert(m.svc.svcByID[id1].svcName, Equals, "svc1")
 	c.Assert(m.svc.svcByID[id1].svcNamespace, Equals, "ns1")
+	c.Assert(m.svc.svcByID[id1].sessionAffinity, Equals, true)
+	c.Assert(m.svc.svcByID[id1].sessionAffinityTimeoutSec, Equals, uint32(100))
+	c.Assert(m.lbmap.ServiceByID[uint16(id1)].SessionAffinity, Equals, true)
+	c.Assert(m.lbmap.ServiceByID[uint16(id1)].SessionAffinityTimeoutSec, Equals, uint32(100))
+	c.Assert(len(m.lbmap.AffinityMatch[uint16(id1)]), Equals, 2)
+	for bID := range m.lbmap.BackendByID {
+		c.Assert(m.lbmap.AffinityMatch[uint16(id1)][bID], Equals, struct{}{})
+	}
 
-	// Should update nothing
-	created, id1, err = m.svc.UpsertService(frontend1, backends1, lb.SVCTypeNodePort, lb.SVCTrafficPolicyCluster, 0, "", "")
+	// Should remove session affinity
+	created, id1, err = m.svc.UpsertService(frontend1, backends1, lb.SVCTypeNodePort, lb.SVCTrafficPolicyCluster, false, 0, 0, "", "")
 	c.Assert(err, IsNil)
 	c.Assert(created, Equals, false)
 	c.Assert(id1, Equals, lb.ID(1))
@@ -87,11 +100,14 @@ func (m *ManagerTestSuite) TestUpsertAndDeleteService(c *C) {
 	c.Assert(len(m.lbmap.BackendByID), Equals, 2)
 	c.Assert(m.svc.svcByID[id1].svcName, Equals, "svc1")
 	c.Assert(m.svc.svcByID[id1].svcNamespace, Equals, "ns1")
+	c.Assert(len(m.lbmap.AffinityMatch[uint16(id1)]), Equals, 0)
+	c.Assert(m.svc.svcByID[id1].sessionAffinity, Equals, false)
+	c.Assert(m.lbmap.ServiceByID[uint16(id1)].SessionAffinity, Equals, false)
 	// TODO(brb) test that backends are the same
 	// TODO(brb) check that .backends =~ .backendsByHash
 
 	// Should remove one backend
-	created, id1, err = m.svc.UpsertService(frontend1, backends1[0:1], lb.SVCTypeNodePort, lb.SVCTrafficPolicyCluster, 0, "", "")
+	created, id1, err = m.svc.UpsertService(frontend1, backends1[0:1], lb.SVCTypeNodePort, lb.SVCTrafficPolicyCluster, false, 0, 0, "", "")
 	c.Assert(err, IsNil)
 	c.Assert(created, Equals, false)
 	c.Assert(id1, Equals, lb.ID(1))
@@ -101,7 +117,7 @@ func (m *ManagerTestSuite) TestUpsertAndDeleteService(c *C) {
 	c.Assert(m.svc.svcByID[id1].svcNamespace, Equals, "ns1")
 
 	// Should add another service
-	created, id2, err := m.svc.UpsertService(frontend2, backends1, lb.SVCTypeNodePort, lb.SVCTrafficPolicyCluster, 0, "svc2", "ns2")
+	created, id2, err := m.svc.UpsertService(frontend2, backends1, lb.SVCTypeNodePort, lb.SVCTrafficPolicyCluster, false, 0, 0, "svc2", "ns2")
 	c.Assert(err, IsNil)
 	c.Assert(created, Equals, true)
 	c.Assert(id2, Equals, lb.ID(2))
@@ -119,7 +135,7 @@ func (m *ManagerTestSuite) TestUpsertAndDeleteService(c *C) {
 	c.Assert(len(m.lbmap.BackendByID), Equals, 2)
 
 	// Should delete both backends of service
-	created, id2, err = m.svc.UpsertService(frontend2, nil, lb.SVCTypeNodePort, lb.SVCTrafficPolicyCluster, 0, "", "")
+	created, id2, err = m.svc.UpsertService(frontend2, nil, lb.SVCTypeNodePort, lb.SVCTrafficPolicyCluster, false, 0, 0, "", "")
 	c.Assert(err, IsNil)
 	c.Assert(created, Equals, false)
 	c.Assert(id2, Equals, lb.ID(2))
@@ -137,9 +153,9 @@ func (m *ManagerTestSuite) TestUpsertAndDeleteService(c *C) {
 }
 
 func (m *ManagerTestSuite) TestRestoreServices(c *C) {
-	_, id1, err := m.svc.UpsertService(frontend1, backends1, lb.SVCTypeNodePort, lb.SVCTrafficPolicyCluster, 0, "", "")
+	_, id1, err := m.svc.UpsertService(frontend1, backends1, lb.SVCTypeNodePort, lb.SVCTrafficPolicyCluster, false, 0, 0, "", "")
 	c.Assert(err, IsNil)
-	_, id2, err := m.svc.UpsertService(frontend2, backends2, lb.SVCTypeClusterIP, lb.SVCTrafficPolicyCluster, 0, "", "")
+	_, id2, err := m.svc.UpsertService(frontend2, backends2, lb.SVCTypeClusterIP, lb.SVCTrafficPolicyCluster, true, 200, 0, "", "")
 	c.Assert(err, IsNil)
 
 	// Restart service, but keep the lbmap to restore services from
@@ -163,12 +179,17 @@ func (m *ManagerTestSuite) TestRestoreServices(c *C) {
 	c.Assert(m.svc.svcByID[id1].backends, checker.DeepEquals, lbmap.ServiceByID[uint16(id1)].Backends)
 	c.Assert(m.svc.svcByID[id2].frontend, checker.DeepEquals, lbmap.ServiceByID[uint16(id2)].Frontend)
 	c.Assert(m.svc.svcByID[id2].backends, checker.DeepEquals, lbmap.ServiceByID[uint16(id2)].Backends)
+
+	// Session affinity too
+	c.Assert(m.svc.svcByID[id1].sessionAffinity, Equals, false)
+	c.Assert(m.svc.svcByID[id2].sessionAffinity, Equals, true)
+	c.Assert(m.svc.svcByID[id2].sessionAffinityTimeoutSec, Equals, uint32(200))
 }
 
 func (m *ManagerTestSuite) TestSyncWithK8sFinished(c *C) {
-	_, _, err := m.svc.UpsertService(frontend1, backends1, lb.SVCTypeNodePort, lb.SVCTrafficPolicyCluster, 0, "", "")
+	_, _, err := m.svc.UpsertService(frontend1, backends1, lb.SVCTypeNodePort, lb.SVCTrafficPolicyCluster, false, 0, 0, "", "")
 	c.Assert(err, IsNil)
-	_, _, err = m.svc.UpsertService(frontend2, backends2, lb.SVCTypeClusterIP, lb.SVCTrafficPolicyCluster, 0, "", "")
+	_, _, err = m.svc.UpsertService(frontend2, backends2, lb.SVCTypeClusterIP, lb.SVCTrafficPolicyCluster, false, 0, 0, "", "")
 	c.Assert(err, IsNil)
 	c.Assert(len(m.svc.svcByID), Equals, 2)
 
@@ -184,7 +205,7 @@ func (m *ManagerTestSuite) TestSyncWithK8sFinished(c *C) {
 	// In real life, the following upsert is called by k8s_watcher during
 	// the sync period of the cilium-agent's k8s service cache which happens
 	// during the initialization of cilium-agent.
-	_, id2, err := m.svc.UpsertService(frontend2, backends2, lb.SVCTypeClusterIP, lb.SVCTrafficPolicyCluster, 0, "svc2", "ns2")
+	_, id2, err := m.svc.UpsertService(frontend2, backends2, lb.SVCTypeClusterIP, lb.SVCTrafficPolicyCluster, false, 0, 0, "svc2", "ns2")
 	c.Assert(err, IsNil)
 
 	// cilium-agent finished the initialization, and thus SyncWithK8sFinished
@@ -210,7 +231,7 @@ func (m *ManagerTestSuite) TestHealthCheckNodePort(c *C) {
 	be1.NodeName = nodeTypes.GetName()
 	backends1 := []lb.Backend{be1, be2}
 
-	_, id1, err := m.svc.UpsertService(frontend1, backends1, lb.SVCTypeLoadBalancer, lb.SVCTrafficPolicyLocal, 32001, "svc1", "ns1")
+	_, id1, err := m.svc.UpsertService(frontend1, backends1, lb.SVCTypeLoadBalancer, lb.SVCTrafficPolicyLocal, false, 0, 32001, "svc1", "ns1")
 	c.Assert(err, IsNil)
 	c.Assert(m.svcHealth.ServiceByPort(32001).Service.Name, Equals, "svc1")
 	c.Assert(m.svcHealth.ServiceByPort(32001).Service.Namespace, Equals, "ns1")
@@ -222,7 +243,7 @@ func (m *ManagerTestSuite) TestHealthCheckNodePort(c *C) {
 	backends1 = []lb.Backend{be1, be2}
 	c.Assert(nodeTypes.GetName(), Not(Equals), "remote-node")
 
-	new, _, err := m.svc.UpsertService(frontend1, backends1, lb.SVCTypeLoadBalancer, lb.SVCTrafficPolicyLocal, 32001, "svc1", "ns1")
+	new, _, err := m.svc.UpsertService(frontend1, backends1, lb.SVCTypeLoadBalancer, lb.SVCTrafficPolicyLocal, false, 0, 32001, "svc1", "ns1")
 	c.Assert(err, IsNil)
 	c.Assert(new, Equals, false)
 	c.Assert(m.svcHealth.ServiceByPort(32001).Service.Name, Equals, "svc1")
@@ -244,7 +265,7 @@ func (m *ManagerTestSuite) TestGetServiceNameByAddr(c *C) {
 	name := "svc1"
 	namespace := "ns1"
 	hcport := uint16(3)
-	created, id1, err := m.svc.UpsertService(*fe, be, lb.SVCTypeNodePort, lb.SVCTrafficPolicyCluster, hcport, name, namespace)
+	created, id1, err := m.svc.UpsertService(*fe, be, lb.SVCTypeNodePort, lb.SVCTrafficPolicyCluster, false, 0, hcport, name, namespace)
 	c.Assert(err, IsNil)
 	c.Assert(created, Equals, true)
 	c.Assert(id1, Equals, lb.ID(1))

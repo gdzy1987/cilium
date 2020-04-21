@@ -75,6 +75,9 @@ type ServiceValue interface {
 	// Get flags
 	GetFlags() uint8
 
+	// Set timeout for sessionAffinity=clientIP
+	SetSessionAffinityTimeoutSec(t uint32)
+
 	// Set backend identifier
 	SetBackendID(id loadbalancer.BackendID)
 
