@@ -86,6 +86,7 @@ func (ipc *ipCacheDumpListener) OnIPIdentityCacheChange(modType ipcache.CacheMod
 			Source:    string(source.Kubernetes),
 			Namespace: k8sMeta.Namespace,
 			Name:      k8sMeta.PodName,
+			// TODO: Add Named ports??
 		}
 	}
 

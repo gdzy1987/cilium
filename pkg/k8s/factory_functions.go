@@ -749,6 +749,7 @@ func ConvertToCiliumEndpoint(obj interface{}) interface{} {
 			Encryption: &concreteObj.Status.Encryption,
 			Identity:   concreteObj.Status.Identity,
 			Networking: concreteObj.Status.Networking,
+			NamedPorts: concreteObj.Status.NamedPorts,
 		}
 		*concreteObj = cilium_v2.CiliumEndpoint{}
 		return p
@@ -765,6 +766,7 @@ func ConvertToCiliumEndpoint(obj interface{}) interface{} {
 				Encryption: &ciliumEndpoint.Status.Encryption,
 				Identity:   ciliumEndpoint.Status.Identity,
 				Networking: ciliumEndpoint.Status.Networking,
+				NamedPorts: ciliumEndpoint.Status.NamedPorts,
 			},
 		}
 		*ciliumEndpoint = cilium_v2.CiliumEndpoint{}

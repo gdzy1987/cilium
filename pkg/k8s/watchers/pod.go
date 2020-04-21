@@ -38,7 +38,9 @@ import (
 	"github.com/cilium/cilium/pkg/node"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/option"
+	"github.com/cilium/cilium/pkg/policy"
 	"github.com/cilium/cilium/pkg/source"
+	"github.com/cilium/cilium/pkg/u8proto"
 
 	"github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
@@ -423,13 +425,39 @@ func (k *K8sWatcher) updatePodHostData(pod *types.Pod) (bool, error) {
 		PodName:   pod.Name,
 	}
 
+	// Store Named ports, if any.
+	for _, container := range pod.SpecContainers {
+		for _, port := range container.ContainerPorts {
+			if port.Name == "" {
+				continue
+			}
+			p, err := u8proto.ParseProtocol(port.Protocol)
+			if err != nil {
+				return true, fmt.Errorf("ContainerPort: invalid protocol: %s", port.Protocol)
+			}
+			if port.ContainerPort < 1 || port.ContainerPort > 65535 {
+				return true, fmt.Errorf("ContainerPort: invalid port: %d", port.ContainerPort)
+			}
+			if k8sMeta.NamedPorts == nil {
+				k8sMeta.NamedPorts = make(policy.NamedPortsMap)
+			}
+			k8sMeta.NamedPorts[port.Name] = policy.NamedPort{
+				Proto: uint8(p),
+				Port:  uint16(port.ContainerPort),
+			}
+		}
+	}
+
 	// Initial mapping of podIP <-> hostIP <-> identity. The mapping is
 	// later updated once the allocator has determined the real identity.
 	// If the endpoint remains unmanaged, the identity remains untouched.
-	selfOwned := ipcache.IPIdentityCache.Upsert(pod.StatusPodIP, hostIP, hostKey, k8sMeta, ipcache.Identity{
+	selfOwned, namedPortsChanged := ipcache.IPIdentityCache.Upsert(pod.StatusPodIP, hostIP, hostKey, k8sMeta, ipcache.Identity{
 		ID:     identity.ReservedIdentityUnmanaged,
 		Source: source.Kubernetes,
 	})
+	if namedPortsChanged {
+		k.policyManager.TriggerPolicyUpdates(true, "Named ports added or updated")
+	}
 	if !selfOwned {
 		return true, fmt.Errorf("ipcache entry owned by kvstore or agent")
 	}
