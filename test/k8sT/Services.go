@@ -26,6 +26,7 @@ import (
 	"github.com/cilium/cilium/test/helpers"
 
 	"github.com/asaskevich/govalidator"
+	"github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
 )
@@ -414,8 +415,13 @@ var _ = Describe("K8sServicesTest", func() {
 		}
 
 		doRequestsFromThirdHostWithLocalPort :=
-			func(url string, count int, checkSourceIP bool, fromPort int) {
-				var cmd string
+			func(url string, count int, checkSourceIP, checkDstPodIsSame bool, fromPort int) {
+				var cmd, dstPod string
+
+				if checkSourceIP && checkDstPodIsSame {
+					ginkgo.Fail("checkSourceIP and checkDstPodIsSame are mutually exclusive")
+				}
+
 				By("Making %d HTTP requests from outside cluster to %q", count, url)
 				for i := 1; i <= count; i++ {
 					if fromPort == 0 {
@@ -425,6 +431,8 @@ var _ = Describe("K8sServicesTest", func() {
 					}
 					if checkSourceIP {
 						cmd += " | grep client_address="
+					} else if checkDstPodIsSame {
+						cmd += " | grep 'Hostname:' " // pod name is encoded in the hostname
 					}
 					clientNodeName, clientIP := kubectl.GetNodeInfo(helpers.GetNodeWithoutCilium())
 					res, err := kubectl.ExecInHostNetNS(context.TODO(), clientNodeName, cmd)
@@ -437,10 +445,20 @@ var _ = Describe("K8sServicesTest", func() {
 						clientIP := net.ParseIP(clientIP)
 						Expect(sourceIP).To(Equal(clientIP))
 					}
+					if checkDstPodIsSame {
+						pod := strings.TrimSpace(strings.Split(res.GetStdOut(), ": ")[1])
+						if i == 1 {
+							// Retrieve the destination pod from the first request
+							dstPod = pod
+						} else {
+							// Check that destination pod is always the same
+							Expect(dstPod).To(Equal(pod))
+						}
+					}
 				}
 			}
-		doRequestsFromThirdHost := func(url string, count int, checkSourceIP bool) {
-			doRequestsFromThirdHostWithLocalPort(url, count, checkSourceIP, 0)
+		doRequestsFromThirdHost := func(url string, count int, checkSourceIP, checkDstPodIsSame bool) {
+			doRequestsFromThirdHostWithLocalPort(url, count, checkSourceIP, checkDstPodIsSame, 0)
 		}
 
 		// srcPod:      Name of pod sending the datagram
@@ -705,8 +723,8 @@ var _ = Describe("K8sServicesTest", func() {
 			//   won't have the client IP but the service IP (given the request comes
 			//   from the Cilium node to the backend, not from the client directly).
 			//   Same in case of Hybrid mode for UDP.
-			doRequestsFromThirdHost(httpURL, 10, checkTCP)
-			doRequestsFromThirdHost(tftpURL, 10, checkUDP)
+			doRequestsFromThirdHost(httpURL, 10, checkTCP, false)
+			doRequestsFromThirdHost(tftpURL, 10, checkUDP, false)
 
 			// Make sure all the rest works as expected as well
 			//testNodePort(true)
@@ -719,6 +737,20 @@ var _ = Describe("K8sServicesTest", func() {
 			pod, err = kubectl.GetCiliumPodOnNode(helpers.CiliumNamespace, helpers.K8s2)
 			Expect(err).Should(BeNil(), "Cannot determine cilium pod name")
 			kubectl.CiliumExecMustSucceed(context.TODO(), pod, "cilium bpf ct flush global", "Unable to flush CT maps")
+		}
+
+		testSessionAffinity := func() {
+			var data v1.Service
+			err := kubectl.Get(helpers.DefaultNamespace, "service test-affinity").Unmarshal(&data)
+			Expect(err).Should(BeNil(), "Cannot retrieve service")
+
+			_, k8s1IP := kubectl.GetNodeInfo(helpers.K8s1)
+
+			httpURL := getHTTPLink(k8s1IP, data.Spec.Ports[0].NodePort)
+
+			doRequestsFromThirdHost(httpURL, 10, false, true)
+
+			// TODO(brb) from inside the cluster
 		}
 
 		testExternalTrafficPolicyLocal := func() {
@@ -740,8 +772,8 @@ var _ = Describe("K8sServicesTest", func() {
 			if helpers.ExistNodeWithoutCilium() {
 				httpURL = getHTTPLink(k8s1IP, data.Spec.Ports[0].NodePort)
 				tftpURL = getTFTPLink(k8s1IP, data.Spec.Ports[1].NodePort)
-				doRequestsFromThirdHost(httpURL, count, true)
-				doRequestsFromThirdHost(tftpURL, count, true)
+				doRequestsFromThirdHost(httpURL, count, true, false)
+				doRequestsFromThirdHost(tftpURL, count, true, false)
 			} else {
 				GinkgoPrint("Skipping externalTrafficPolicy=Local test from external node")
 			}
@@ -932,6 +964,10 @@ var _ = Describe("K8sServicesTest", func() {
 						testExternalTrafficPolicyLocal()
 					})
 
+					It("Tests NodePort with sessionAffinity", func() {
+						testSessionAffinity()
+					})
+
 					It("Tests HealthCheckNodePort", func() {
 						testHealthCheckNodePort()
 					})
@@ -955,6 +991,10 @@ var _ = Describe("K8sServicesTest", func() {
 
 					It("Tests NodePort with externalTrafficPolicy=Local", func() {
 						testExternalTrafficPolicyLocal()
+					})
+
+					It("Tests NodePort with sessionAffinity", func() {
+						testSessionAffinity()
 					})
 
 					It("Tests HealthCheckNodePort", func() {
@@ -985,9 +1025,9 @@ var _ = Describe("K8sServicesTest", func() {
 						// via two different NodePort svc to trigger the stale conntrack
 						// entry issue. Once it's fixed, the second request should not
 						// fail.
-						doRequestsFromThirdHostWithLocalPort(svc1URL, 1, false, 64002)
+						doRequestsFromThirdHostWithLocalPort(svc1URL, 1, false, false, 64002)
 						time.Sleep(120 * time.Second) // to reuse the source port
-						doRequestsFromThirdHostWithLocalPort(svc2URL, 1, false, 64002)
+						doRequestsFromThirdHostWithLocalPort(svc2URL, 1, false, false, 64002)
 					})
 
 					SkipContextIf(helpers.DoesNotExistNodeWithoutCilium, "Tests with MetalLB", func() {
@@ -1011,7 +1051,7 @@ var _ = Describe("K8sServicesTest", func() {
 								helpers.DefaultNamespace, "test-lb", 30*time.Second)
 							Expect(err).Should(BeNil(), "Cannot retrieve loadbalancer IP for test-lb")
 
-							doRequestsFromThirdHost("http://"+lbIP, 10, false)
+							doRequestsFromThirdHost("http://"+lbIP, 10, false, false)
 						})
 					})
 				})
@@ -1028,7 +1068,7 @@ var _ = Describe("K8sServicesTest", func() {
 					Expect(err).Should(BeNil(), "Cannot retrieve service")
 					_, k8s1IP := kubectl.GetNodeInfo(helpers.K8s1)
 					url := getHTTPLink(k8s1IP, data.Spec.Ports[0].NodePort)
-					doRequestsFromThirdHost(url, 10, true)
+					doRequestsFromThirdHost(url, 10, true, false)
 
 					// Test whether DSR NAT entries are evicted by GC
 
@@ -1040,7 +1080,7 @@ var _ = Describe("K8sServicesTest", func() {
 					Expect(err).Should(BeNil(), "Cannot retrieve service")
 					url = getHTTPLink(k8s1IP, data.Spec.Ports[0].NodePort)
 
-					doRequestsFromThirdHostWithLocalPort(url, 1, true, 64000)
+					doRequestsFromThirdHostWithLocalPort(url, 1, true, false, 64000)
 					res := kubectl.CiliumExecContext(context.TODO(), pod, "cilium bpf nat list | grep 64000")
 					Expect(res.GetStdOut()).ShouldNot(BeEmpty(), "NAT entry was not evicted")
 					// Flush CT maps to trigger eviction of the NAT entries (simulates CT GC)
