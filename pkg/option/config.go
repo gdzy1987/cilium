@@ -320,6 +320,9 @@ const (
 	// features in BPF datapath
 	KubeProxyReplacement = "kube-proxy-replacement"
 
+	// EnableSessionAffinity enables a support for service sessionAffinity
+	EnableSessionAffinity = "enable-session-affinity"
+
 	// LibDir enables the directory path to store runtime build environment
 	LibDir = "lib-dir"
 
@@ -1083,6 +1086,7 @@ var HelpFlagSections = []FlagsSection{
 			NodePortRange,
 			EnableHostReachableServices,
 			HostReachableServicesProtos,
+			EnableSessionAffinity,
 		},
 	},
 	{
@@ -1762,6 +1766,9 @@ type DaemonConfig struct {
 	// NodePortMax is the maximum port address for the NodePort range
 	NodePortMax int
 
+	// EnableSessionAffinity enables a support for service sessionAffinity
+	EnableSessionAffinity bool
+
 	// excludeLocalAddresses excludes certain addresses to be recognized as
 	// a local address
 	excludeLocalAddresses []*net.IPNet
@@ -2337,6 +2344,7 @@ func (c *DaemonConfig) Populate() {
 	c.NodePortAcceleration = viper.GetString(NodePortAcceleration)
 	c.EnableAutoProtectNodePortRange = viper.GetBool(EnableAutoProtectNodePortRange)
 	c.KubeProxyReplacement = viper.GetString(KubeProxyReplacement)
+	c.EnableSessionAffinity = viper.GetBool(EnableSessionAffinity)
 	c.EnableCEPGC = viper.GetBool(EnableCEPGC)
 	c.EnableCNPNodeStatusGC = viper.GetBool(EnableCNPNodeStatusGC)
 	c.EnableCCNPNodeStatusGC = viper.GetBool(EnableCCNPNodeStatusGC)
