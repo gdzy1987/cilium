@@ -102,7 +102,7 @@ archive_filename = archive_name + '.tar.gz'
 archive_link = 'https://github.com/cilium/cilium/archive/' + archive_filename
 archive_name = 'cilium-' + archive_name.strip('v')
 project_link = 'https://github.com/cilium/cilium/projects?query=is:open+' + next_release
-backport_format = 'https://github.com/cilium/cilium/pulls?q=is:open+is:pr+label:%s/' + current_release
+backport_format = 'https://github.com/cilium/cilium/pulls?q=is:open+is:pr+label:backport/%s' + current_release
 
 # Store variables in the epilogue so they are globally available.
 rst_epilog = """
