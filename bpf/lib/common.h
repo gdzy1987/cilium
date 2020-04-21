@@ -640,6 +640,28 @@ struct ipv4_revnat_entry {
 	__u16 rev_nat_index;
 };
 
+struct lb4_affinity_key {
+	// if netns_cookie=1, then it's a netns cookie, otherwise a client_ip
+	__u64 client_id;
+	__u16 rev_nat_id;
+	__u8 netns_cookie:1,
+	     reserved:7;
+	__u8 pad1;
+	__u32 pad2;
+};
+
+struct lb4_affinity_val {
+	__u64 last_used;
+	__u32 backend_id;
+	__u32 pad;
+};
+
+struct lb_affinity_match {
+	__u32 backend_id;
+	__u16 rev_nat_id;
+	__u16 pad;
+};
+
 struct ct_state {
 	__u16 rev_nat_index;
 	__u16 loopback:1,

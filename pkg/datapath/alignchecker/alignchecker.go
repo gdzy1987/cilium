@@ -80,6 +80,7 @@ func CheckStructAlignments(path string) error {
 			reflect.TypeOf(eppolicymap.EndpointKey{}),
 			reflect.TypeOf(tunnel.TunnelEndpoint{}),
 		},
+		"lb_affinity_match": {reflect.TypeOf(lbmap.AffinityMatchKey{})},
 	}
 	if err := check.CheckStructAlignments(path, toCheck, true); err != nil {
 		return err

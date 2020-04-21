@@ -77,8 +77,29 @@ struct bpf_elf_map __section_maps LB4_BACKEND_MAP = {
 	.flags          = CONDITIONAL_PREALLOC,
 };
 
+#ifdef ENABLE_SESSION_AFFINITY
+struct bpf_elf_map __section_maps LB4_AFFINITY_MAP = {
+	.type		= BPF_MAP_TYPE_LRU_HASH,
+	.size_key	= sizeof(struct lb4_affinity_key),
+	.size_value	= sizeof(struct lb4_affinity_val),
+	.pinning	= PIN_GLOBAL_NS,
+	.max_elem	= 10000, // TODO(brb)
+	.flags		= 0,
+};
+#endif
+
 #endif /* ENABLE_IPV4 */
 
+#ifdef ENABLE_SESSION_AFFINITY
+struct bpf_elf_map __section_maps LB_AFFINITY_MATCH_MAP = {
+	.type		= BPF_MAP_TYPE_HASH,
+	.size_key	= sizeof(struct lb_affinity_match),
+	.size_value	= sizeof(__u8),
+	.pinning	= PIN_GLOBAL_NS,
+	.max_elem	= 10000, // TODO(brb)
+	.flags		= CONDITIONAL_PREALLOC,
+};
+#endif
 
 #define REV_NAT_F_TUPLE_SADDR 1
 #ifdef LB_DEBUG

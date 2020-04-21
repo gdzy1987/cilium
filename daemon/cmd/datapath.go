@@ -36,6 +36,7 @@ import (
 	"github.com/cilium/cilium/pkg/maps/eventsmap"
 	"github.com/cilium/cilium/pkg/maps/fragmap"
 	ipcachemap "github.com/cilium/cilium/pkg/maps/ipcache"
+	"github.com/cilium/cilium/pkg/maps/lbmap"
 	"github.com/cilium/cilium/pkg/maps/lxcmap"
 	"github.com/cilium/cilium/pkg/maps/metricsmap"
 	"github.com/cilium/cilium/pkg/maps/nat"
@@ -430,6 +431,13 @@ func (d *Daemon) initMaps() error {
 		// If we are not restoring state, all endpoints can be
 		// deleted. Entries will be re-populated.
 		lxcmap.LXCMap.DeleteAll()
+	}
+
+	if option.Config.EnableSessionAffinity {
+		if _, err := lbmap.AffinityMatchMap.OpenOrCreate(); err != nil {
+			return err
+		}
+		// TODO(brb) affinity_maps v4 and v6
 	}
 
 	return nil
