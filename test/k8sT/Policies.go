@@ -246,7 +246,7 @@ var _ = Describe("K8sPolicyTest", func() {
 			}
 
 			trace := kubectl.CiliumExecMustSucceed(context.TODO(), ciliumPod, fmt.Sprintf(
-				"cilium policy trace --src-k8s-pod %s:%s --dst-k8s-pod %s:%s --dport 80/TCP",
+				"cilium policy trace --src-k8s-pod %s:%s --dst-k8s-pod %s:%s --dport http-80/TCP",
 				namespaceForTest, appPods[helpers.App2], namespaceForTest, appPods[helpers.App1]))
 			trace.ExpectContains("Final verdict: ALLOWED", "Policy trace output mismatch")
 
