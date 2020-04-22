@@ -771,15 +771,19 @@ func (l4 L4PolicyMap) containsAllL3L4(labels labels.LabelArray, ports []*models.
 	}
 
 	for _, l4Ctx := range ports {
+		portStr := l4Ctx.Name
+		if !api.IsNamedPort(portStr) {
+			portStr = fmt.Sprintf("%d", l4Ctx.Port)
+		}
 		lwrProtocol := l4Ctx.Protocol
 		switch lwrProtocol {
 		case "", models.PortProtocolANY:
-			tcpPort := fmt.Sprintf("%d/TCP", l4Ctx.Port)
+			tcpPort := fmt.Sprintf("%s/TCP", portStr)
 			tcpFilter, tcpmatch := l4[tcpPort]
 			if tcpmatch {
 				tcpmatch = tcpFilter.matchesLabels(labels)
 			}
-			udpPort := fmt.Sprintf("%d/UDP", l4Ctx.Port)
+			udpPort := fmt.Sprintf("%s/UDP", portStr)
 			udpFilter, udpmatch := l4[udpPort]
 			if udpmatch {
 				udpmatch = udpFilter.matchesLabels(labels)
@@ -788,7 +792,7 @@ func (l4 L4PolicyMap) containsAllL3L4(labels labels.LabelArray, ports []*models.
 				return api.Denied
 			}
 		default:
-			port := fmt.Sprintf("%d/%s", l4Ctx.Port, lwrProtocol)
+			port := fmt.Sprintf("%s/%s", portStr, lwrProtocol)
 			filter, match := l4[port]
 			if !match || !filter.matchesLabels(labels) {
 				return api.Denied
