@@ -54,6 +54,9 @@ type StatusResponse struct {
 	// Status of key/value datastore
 	Kvstore *Status `json:"kvstore,omitempty"`
 
+	// List of named ports
+	NamedPorts NamedPorts `json:"namedPorts,omitempty"`
+
 	// Status of the node monitor
 	NodeMonitor *MonitorStatus `json:"nodeMonitor,omitempty"`
 
@@ -105,6 +108,10 @@ func (m *StatusResponse) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateKvstore(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateNamedPorts(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -299,6 +306,22 @@ func (m *StatusResponse) validateKvstore(formats strfmt.Registry) error {
 			}
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (m *StatusResponse) validateNamedPorts(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.NamedPorts) { // not required
+		return nil
+	}
+
+	if err := m.NamedPorts.Validate(formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("namedPorts")
+		}
+		return err
 	}
 
 	return nil

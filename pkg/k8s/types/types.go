@@ -49,9 +49,9 @@ type SlimCNP struct {
 }
 
 type ContainerPort struct {
-	Name          string
-	Protocol      string
-	ContainerPort int32
+	Name          string `json:"name,omitempty"`
+	Protocol      string `json:"protocol,omitempty"`
+	ContainerPort int32  `json:"containerPort"`
 	HostPort      int32
 	HostIP        string
 }

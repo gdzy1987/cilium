@@ -2151,6 +2151,10 @@ func init() {
           "description": "Most recent status log. See endpoint/{id}/log for the complete log.",
           "$ref": "#/definitions/EndpointStatusLog"
         },
+        "namedPorts": {
+          "description": "List of named ports that can be used in Network Policy",
+          "$ref": "#/definitions/NamedPorts"
+        },
         "networking": {
           "description": "Networking properties of the endpoint",
           "$ref": "#/definitions/EndpointNetworking"
@@ -2742,6 +2746,13 @@ func init() {
         }
       }
     },
+    "NamedPorts": {
+      "description": "List of named Layer 4 port and protocol pairs which will be used in Network\nPolicy specs.\n",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Port"
+      }
+    },
     "NodeAddressing": {
       "description": "Addressing information of a node for all address families",
       "type": "object",
@@ -2849,6 +2860,10 @@ func init() {
       "description": "Layer 4 port / protocol pair",
       "type": "object",
       "properties": {
+        "name": {
+          "description": "Optional layer 4 port name",
+          "type": "string"
+        },
         "port": {
           "description": "Layer 4 port number",
           "type": "integer",
@@ -3210,6 +3225,10 @@ func init() {
         "kvstore": {
           "description": "Status of key/value datastore",
           "$ref": "#/definitions/Status"
+        },
+        "namedPorts": {
+          "description": "List of named ports",
+          "$ref": "#/definitions/NamedPorts"
         },
         "nodeMonitor": {
           "description": "Status of the node monitor",
@@ -5700,6 +5719,10 @@ func init() {
           "description": "Most recent status log. See endpoint/{id}/log for the complete log.",
           "$ref": "#/definitions/EndpointStatusLog"
         },
+        "namedPorts": {
+          "description": "List of named ports that can be used in Network Policy",
+          "$ref": "#/definitions/NamedPorts"
+        },
         "networking": {
           "description": "Networking properties of the endpoint",
           "$ref": "#/definitions/EndpointNetworking"
@@ -6291,6 +6314,13 @@ func init() {
         }
       }
     },
+    "NamedPorts": {
+      "description": "List of named Layer 4 port and protocol pairs which will be used in Network\nPolicy specs.\n",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Port"
+      }
+    },
     "NodeAddressing": {
       "description": "Addressing information of a node for all address families",
       "type": "object",
@@ -6398,6 +6428,10 @@ func init() {
       "description": "Layer 4 port / protocol pair",
       "type": "object",
       "properties": {
+        "name": {
+          "description": "Optional layer 4 port name",
+          "type": "string"
+        },
         "port": {
           "description": "Layer 4 port number",
           "type": "integer",
@@ -6759,6 +6793,10 @@ func init() {
         "kvstore": {
           "description": "Status of key/value datastore",
           "$ref": "#/definitions/Status"
+        },
+        "namedPorts": {
+          "description": "List of named ports",
+          "$ref": "#/definitions/NamedPorts"
         },
         "nodeMonitor": {
           "description": "Status of the node monitor",
