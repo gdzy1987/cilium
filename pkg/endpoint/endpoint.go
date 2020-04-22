@@ -40,6 +40,7 @@ import (
 	"github.com/cilium/cilium/pkg/identity/cache"
 	"github.com/cilium/cilium/pkg/identity/identitymanager"
 	"github.com/cilium/cilium/pkg/k8s/apis/cilium.io"
+	"github.com/cilium/cilium/pkg/k8s/types"
 	"github.com/cilium/cilium/pkg/labels"
 	pkgLabels "github.com/cilium/cilium/pkg/labels"
 	"github.com/cilium/cilium/pkg/lock"
@@ -52,9 +53,11 @@ import (
 	"github.com/cilium/cilium/pkg/monitor/notifications"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/policy"
+	"github.com/cilium/cilium/pkg/policy/api"
 	"github.com/cilium/cilium/pkg/policy/trafficdirection"
 	"github.com/cilium/cilium/pkg/proxy/accesslog"
 	"github.com/cilium/cilium/pkg/trigger"
+	"github.com/cilium/cilium/pkg/u8proto"
 
 	"github.com/sirupsen/logrus"
 
@@ -210,6 +213,10 @@ type Endpoint struct {
 
 	// K8sNamespace is the Kubernetes namespace of the endpoint
 	K8sNamespace string
+
+	// k8sPorts contains container ports associated in the pod.
+	// It is used to enforce k8s network policies with port names.
+	k8sPorts policy.NamedPortsMap
 
 	// policyRevision is the policy revision this endpoint is currently on
 	// to modify this field please use endpoint.setPolicyRevision instead
@@ -1057,6 +1064,42 @@ func (e *Endpoint) SetK8sNamespace(name string) {
 	e.unlock()
 }
 
+// SetNamedPorts sets the k8s container ports specified by kubernetes.
+// Note that once put in place, the new k8sPorts is never changed,
+// so that the map can be used concurrently without keeping locks.
+// Reading the 'e.k8sPorts' member (the "map pointer") *itself* requires the endpoint lock!
+// Can't really error out as that might break backwards compatibility.
+func (e *Endpoint) SetNamedPorts(containerPorts []types.ContainerPort) error {
+	k8sPorts := make(policy.NamedPortsMap, len(containerPorts))
+	for _, cp := range containerPorts {
+		if cp.Name == "" {
+			continue // skip unnamed ports
+		}
+		if !api.IsNamedPort(cp.Name) {
+			log.WithField(logfields.PortName, cp.Name).Warning("ContainerPort: Invalid port name, not using as a named port")
+			continue
+		}
+		name := strings.ToLower(cp.Name)
+		u8p, err := u8proto.ParseProtocol(cp.Protocol)
+		if err != nil {
+			log.WithError(err).WithField(logfields.Protocol, cp.Protocol).Warning("ContainerPort: invalid protocol")
+			continue
+		}
+		if cp.ContainerPort < 1 || cp.ContainerPort > 65535 {
+			log.WithField(logfields.Port, cp.ContainerPort).Warning("ContainerPort: Port number out of 16-bit range")
+			continue
+		}
+		k8sPorts[name] = policy.NamedPort{
+			Proto: uint8(u8p), // 0 for any
+			Port:  uint16(cp.ContainerPort),
+		}
+	}
+	e.mutex.Lock()
+	e.k8sPorts = k8sPorts
+	e.mutex.Unlock()
+	return nil
+}
+
 // K8sNamespaceAndPodNameIsSet returns true if the pod name is set
 func (e *Endpoint) K8sNamespaceAndPodNameIsSet() bool {
 	e.unconditionalLock()
@@ -1459,7 +1502,7 @@ func APICanModify(e *Endpoint) error {
 
 // MetadataResolverCB provides an implementation for resolving the endpoint
 // metadata for an endpoint such as the associated labels and annotations.
-type MetadataResolverCB func(ns, podName string) (identityLabels labels.Labels, infoLabels labels.Labels, annotations map[string]string, err error)
+type MetadataResolverCB func(ns, podName string) (_ []types.ContainerPort, identityLabels labels.Labels, infoLabels labels.Labels, annotations map[string]string, err error)
 
 // RunMetadataResolver starts a controller associated with the received
 // endpoint which will periodically attempt to resolve the metadata for the
@@ -1481,16 +1524,13 @@ func (e *Endpoint) RunMetadataResolver(resolveMetadata MetadataResolverCB) {
 		controller.ControllerParams{
 			DoFunc: func(ctx context.Context) error {
 				ns, podName := e.GetK8sNamespace(), e.GetK8sPodName()
-				identityLabels, info, _, err := resolveMetadata(ns, podName)
+				cp, identityLabels, info, annotations, err := resolveMetadata(ns, podName)
 				if err != nil {
 					e.Logger(controllerName).WithError(err).Warning("Unable to fetch kubernetes labels")
 					return err
 				}
+				e.SetNamedPorts(cp)
 				e.UpdateVisibilityPolicy(func(_, _ string) (proxyVisibility string, err error) {
-					_, _, annotations, err := resolveMetadata(ns, podName)
-					if err != nil {
-						return "", err
-					}
 					return annotations[annotation.ProxyVisibility], nil
 				})
 				e.UpdateLabels(ctx, identityLabels, info, true)

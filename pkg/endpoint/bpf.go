@@ -145,11 +145,11 @@ func (e *Endpoint) writeHeaderfile(prefix string) error {
 }
 
 // addNewRedirectsFromDesiredPolicy must be called while holding the endpoint lock for
-// writing. On success, returns nil; otherwise, returns an error  indicating the
+// writing. On success, returns nil; otherwise, returns an error indicating the
 // problem that occurred while adding an l7 redirect for the specified policy.
 // Must be called with endpoint.Mutex held.
 func (e *Endpoint) addNewRedirectsFromDesiredPolicy(ingress bool, desiredRedirects map[string]bool, proxyWaitGroup *completion.WaitGroup) (error, revert.FinalizeFunc, revert.RevertFunc) {
-	if option.Config.DryMode {
+	if option.Config.DryMode || e.isProxyDisabled() {
 		return nil, nil, nil
 	}
 
@@ -179,7 +179,15 @@ func (e *Endpoint) addNewRedirectsFromDesiredPolicy(ingress bool, desiredRedirec
 			if !e.hasSidecarProxy || l4.L7Parser != policy.ParserTypeHTTP {
 				var finalizeFunc revert.FinalizeFunc
 				var revertFunc revert.RevertFunc
-				redirectPort, err, finalizeFunc, revertFunc = e.updateProxyRedirect(l4, proxyWaitGroup)
+
+				proxyID := ""
+				proxyID, err = e.ProxyID(e.desiredPolicy.NamedPortsMap, l4)
+				if err != nil {
+					revertStack.Revert() // Ignore errors while reverting. This is best-effort.
+					return err, nil, nil
+				}
+
+				redirectPort, err, finalizeFunc, revertFunc = e.proxy.CreateOrUpdateRedirect(l4, proxyID, e, proxyWaitGroup)
 				if err != nil {
 					revertStack.Revert() // Ignore errors while reverting. This is best-effort.
 					return err, nil, nil
@@ -187,7 +195,6 @@ func (e *Endpoint) addNewRedirectsFromDesiredPolicy(ingress bool, desiredRedirec
 				finalizeList.Append(finalizeFunc)
 				revertStack.Push(revertFunc)
 
-				proxyID := e.ProxyID(l4)
 				if e.realizedRedirects == nil {
 					e.realizedRedirects = make(map[string]uint16)
 				}
@@ -219,11 +226,15 @@ func (e *Endpoint) addNewRedirectsFromDesiredPolicy(ingress bool, desiredRedirec
 				direction = trafficdirection.Egress
 			}
 
-			keysFromFilter := l4.ToMapState(direction)
+			keysFromFilter := l4.ToMapState(e.desiredPolicy.NamedPortsMap, direction)
 
 			for keyFromFilter, entry := range keysFromFilter {
 				if oldEntry, ok := e.desiredPolicy.PolicyMapState[keyFromFilter]; ok {
-					updatedDesiredMapState[keyFromFilter] = oldEntry
+					// Keep the original old entry for revert if there are duplicate keys,
+					// which are possible due to named ports resolving to the same number.
+					if _, isDup := updatedDesiredMapState[keyFromFilter]; !isDup {
+						updatedDesiredMapState[keyFromFilter] = oldEntry
+					}
 				} else {
 					insertedDesiredMapState[keyFromFilter] = struct{}{}
 				}

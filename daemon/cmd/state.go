@@ -42,7 +42,7 @@ type endpointRestoreState struct {
 	toClean  []*endpoint.Endpoint
 }
 
-// validateEndpoint attempts to determine that the endpoint is valid, ie it
+// validateEndpoint attempts to determine that the restored endpoint is valid, ie it
 // still exists in k8s, its datapath devices are present, and Cilium is
 // responsible for its workload, etc.
 //
@@ -92,11 +92,18 @@ func (d *Daemon) validateEndpoint(ep *endpoint.Endpoint) (valid bool, err error)
 				return
 			}
 
-			ep.UpdateVisibilityPolicy(func(ns, podName string) (proxyVisibility string, err error) {
-				_, _, annotations, err := d.fetchK8sLabelsAndAnnotations(ns, podName)
-				if err != nil {
-					return "", err
+			cp, _, _, annotations, err := d.fetchK8sLabelsAndAnnotations(ep.K8sNamespace, ep.K8sPodName)
+			if err == nil {
+				if err = ep.SetNamedPorts(cp); err != nil {
+					log.WithFields(logrus.Fields{
+						logfields.EndpointID:   ep.ID,
+						logfields.K8sNamespace: ep.K8sNamespace,
+						logfields.K8sPodName:   ep.K8sPodName,
+					}).WithError(err).Warningf("Invalid ContainerPorts: %v", cp)
 				}
+			}
+
+			ep.UpdateVisibilityPolicy(func(ns, podName string) (proxyVisibility string, err error) {
 				return annotations[annotation.ProxyVisibility], nil
 			})
 		}()
